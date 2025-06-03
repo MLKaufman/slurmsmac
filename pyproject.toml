@@ -1,0 +1,27 @@
+[project]
+name = "slurmsmac"
+version = "0.1.0"
+description = "A TUI application for monitoring Slurm jobs"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "rich>=13.7.0",
+    "textual>=0.47.1",
+    "pandas>=2.2.0",
+    "matplotlib>=3.8.2",
+    "numpy>=1.26.3",
+]
+
+[project.scripts]
+slurmsmac = "slurmsmac:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.rye]
+managed = true
+dev-dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/slurmsmac"]
