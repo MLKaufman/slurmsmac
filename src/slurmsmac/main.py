@@ -1,13 +1,13 @@
+# -*- coding: utf-8 -*-
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Header, Footer, Static, DataTable, Label
+from textual.widgets import Header, Footer, Static, DataTable, Label, Tab, Tabs, TabPane
 from textual.reactive import reactive
-from textual import events
-import matplotlib.pyplot as plt
-import io
 from datetime import datetime
 from .slurm_data import get_slurm_collector, MockSlurmDataCollector
 import pandas as pd
+import os
+import sys
 
 class JobStats(Static):
     """Widget to display job statistics."""
@@ -51,7 +51,6 @@ class Dashboard(App):
 
     .stats-value {
         color: $text;
-        /* font-size: 1.2; */
     }
 
     DataTable {
@@ -69,6 +68,21 @@ class Dashboard(App):
         color: $warning;
         text-style: bold;
     }
+
+    Tabs {
+        dock: top;
+        width: 100%;
+        height: 3;
+    }
+
+    TabPane {
+        height: 1fr;
+    }
+
+    .status-bar {
+        color: $text;
+        padding: 1;
+    }
     """
 
     def __init__(self):
@@ -85,34 +99,48 @@ class Dashboard(App):
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header()
-        yield Container(
-            Horizontal(
-                Vertical(
-                    Static("Active Jobs", classes="section-title"),
-                    DataTable(id="active-jobs-table"),
-                    classes="stats-container"
-                ),
-                Vertical(
-                    Static("Job Statistics", classes="section-title"),
-                    self.total_jobs_stat,
-                    self.active_jobs_stat,
-                    self.completed_jobs_stat,
-                    self.failed_jobs_stat,
-                    classes="stats-container"
-                ),
-            ),
-            Horizontal(
-                Vertical(
-                    Static("Job History", classes="section-title"),
-                    DataTable(id="history-table"),
-                    classes="stats-container"
-                ),
-                Vertical(
-                    Static("Job Status Distribution", classes="section-title"),
-                    Static(id="status-plot", classes="plot-container"),
-                    classes="stats-container"
+        yield Tabs(
+            Tab("Current Jobs", id="current-tab"),
+            Tab("Job History", id="history-tab"),
+        )
+        yield TabPane(
+            "Current Jobs",
+            Container(
+                Horizontal(
+                    Vertical(
+                        Static("Active Jobs", classes="section-title"),
+                        DataTable(id="active-jobs-table"),
+                        classes="stats-container"
+                    ),
+                    Vertical(
+                        Static("Job Statistics", classes="section-title"),
+                        self.total_jobs_stat,
+                        self.active_jobs_stat,
+                        self.completed_jobs_stat,
+                        self.failed_jobs_stat,
+                        classes="stats-container"
+                    ),
                 ),
             ),
+            id="current-pane"
+        )
+        yield TabPane(
+            "Job History",
+            Container(
+                Horizontal(
+                    Vertical(
+                        Static("Job History", classes="section-title"),
+                        DataTable(id="history-table"),
+                        classes="stats-container"
+                    ),
+                    Vertical(
+                        Static("Job Status Distribution", classes="section-title"),
+                        Static(id="status-plot", classes="status-bar"),
+                        classes="stats-container"
+                    ),
+                ),
+            ),
+            id="history-pane"
         )
         if self.is_mock_mode:
             yield Static("⚠️ Running in mock mode - No Slurm detected", classes="mode-indicator")
@@ -120,8 +148,26 @@ class Dashboard(App):
 
     def on_mount(self) -> None:
         """Set up the application when it starts."""
+        # Set terminal encoding for the application
+        if sys.platform != "win32":  # Only set for non-Windows platforms
+            os.environ["LANG"] = "en_US.UTF-8"
+            os.environ["LC_ALL"] = "en_US.UTF-8"
+            os.environ["TERM"] = "vt100"  # Use a simple terminal type that doesn't support mouse events
+            os.environ["TERMINFO"] = ""
+            os.environ["PYTHONIOENCODING"] = "latin-1"
+        
+        # Configure mouse mode for SSH
+        self.mouse_mode = "none"  # Completely disable mouse support
+        
         self.set_interval(self.refresh_interval, self.refresh_data)
         self.refresh_data()
+
+    def on_key(self, event):
+        """Handle keyboard events."""
+        if event.key == "q":
+            self.exit()
+        elif event.key == "ctrl+c":
+            self.exit()
 
     def refresh_data(self) -> None:
         """Refresh all data displays."""
@@ -175,22 +221,32 @@ class Dashboard(App):
             )
 
     def update_status_plot(self) -> None:
-        """Update the job status distribution plot."""
-        history = self.data_collector.get_job_history()
-        status_counts = history['state'].value_counts()
-        
-        plt.figure(figsize=(6, 4))
-        plt.pie(status_counts, labels=status_counts.index, autopct='%1.1f%%')
-        plt.title("Job Status Distribution")
-        
-        # Convert plot to text representation
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png')
-        buf.seek(0)
-        plt.close()
-        
-        # Update the plot display
-        self.query_one("#status-plot").update("Job Status Distribution Plot")
+        """Update the job status distribution display."""
+        try:
+            history = self.data_collector.get_job_history()
+            if history.empty:
+                self.query_one("#status-plot").update("No job history available")
+                return
+
+            status_counts = history['state'].value_counts()
+            total_jobs = len(history)
+            
+            # Create a text-based visualization using ASCII characters only
+            lines = ["Job Status Distribution:"]
+            for status, count in status_counts.items():
+                percentage = (count / total_jobs) * 100
+                bar_length = int(percentage / 2)  # Scale bar to fit in terminal
+                bar = "#" * bar_length  # Use ASCII # instead of Unicode block
+                lines.append(f"{status:12} {bar} {percentage:5.1f}% ({count})")
+            
+            # Add total jobs count
+            lines.append(f"\nTotal Jobs: {total_jobs}")
+            
+            # Update the display
+            self.query_one("#status-plot").update("\n".join(lines))
+        except Exception as e:
+            # If there's any error, show a simple text representation
+            self.query_one("#status-plot").update(f"Error generating status display: {str(e)}")
 
 if __name__ == "__main__":
     app = Dashboard()

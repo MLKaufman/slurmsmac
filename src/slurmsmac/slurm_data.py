@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import subprocess
 import pandas as pd
 from typing import Dict, List, Tuple
@@ -76,26 +77,40 @@ class RealSlurmDataCollector(BaseSlurmDataCollector):
         """Get the current username."""
         return subprocess.check_output(['whoami']).decode().strip()
 
+    def _clean_string(self, s: str) -> str:
+        """Clean a string by removing or replacing problematic characters."""
+        # Remove control characters and other problematic characters
+        return ''.join(char for char in s if ord(char) >= 32 or char in '\n\r\t')
+
     def get_active_jobs(self) -> pd.DataFrame:
         """Get currently active and pending jobs."""
         cmd = ['squeue', '-u', self.username, '--format=%i|%j|%t|%M|%N|%C|%m|%R']
-        output = subprocess.check_output(cmd).decode()
+        try:
+            output = subprocess.check_output(cmd, encoding='latin-1', errors='replace').strip()
+            output = self._clean_string(output)
+        except subprocess.CalledProcessError:
+            return pd.DataFrame()
         
         # Parse the output
-        lines = output.strip().split('\n')[1:]  # Skip header
+        lines = output.split('\n')[1:]  # Skip header
         data = []
         for line in lines:
-            job_id, name, state, time, nodes, cpus, mem, reason = line.split('|')
-            data.append({
-                'job_id': job_id,
-                'name': name,
-                'state': state,
-                'time': time,
-                'nodes': nodes,
-                'cpus': cpus,
-                'memory': mem,
-                'reason': reason
-            })
+            if not line.strip():
+                continue
+            try:
+                job_id, name, state, time, nodes, cpus, mem, reason = line.split('|')
+                data.append({
+                    'job_id': job_id.strip(),
+                    'name': name.strip(),
+                    'state': state.strip(),
+                    'time': time.strip(),
+                    'nodes': nodes.strip(),
+                    'cpus': cpus.strip(),
+                    'memory': mem.strip(),
+                    'reason': reason.strip()
+                })
+            except ValueError:
+                continue
         
         return pd.DataFrame(data)
 
@@ -108,28 +123,35 @@ class RealSlurmDataCollector(BaseSlurmDataCollector):
             '-S', start_time,
             '--format=JobID,JobName,State,Start,End,Elapsed,MaxRSS,MaxVMSize,NCPUS,NodeList'
         ]
-        output = subprocess.check_output(cmd).decode()
+        try:
+            output = subprocess.check_output(cmd, encoding='latin-1', errors='replace').strip()
+            output = self._clean_string(output)
+        except subprocess.CalledProcessError:
+            return pd.DataFrame()
         
         # Parse the output
-        lines = output.strip().split('\n')[1:]  # Skip header
+        lines = output.split('\n')[1:]  # Skip header
         data = []
         for line in lines:
             if not line.strip():
                 continue
-            fields = line.split()
-            if len(fields) >= 10:
-                data.append({
-                    'job_id': fields[0],
-                    'name': fields[1],
-                    'state': fields[2],
-                    'start': fields[3],
-                    'end': fields[4],
-                    'elapsed': fields[5],
-                    'max_rss': fields[6],
-                    'max_vmsize': fields[7],
-                    'ncpus': fields[8],
-                    'nodes': fields[9]
-                })
+            try:
+                fields = line.split()
+                if len(fields) >= 10:
+                    data.append({
+                        'job_id': fields[0].strip(),
+                        'name': fields[1].strip(),
+                        'state': fields[2].strip(),
+                        'start': fields[3].strip(),
+                        'end': fields[4].strip(),
+                        'elapsed': fields[5].strip(),
+                        'max_rss': fields[6].strip(),
+                        'max_vmsize': fields[7].strip(),
+                        'ncpus': fields[8].strip(),
+                        'nodes': fields[9].strip()
+                    })
+            except (ValueError, IndexError):
+                continue
         
         return pd.DataFrame(data)
 
@@ -138,14 +160,18 @@ class RealSlurmDataCollector(BaseSlurmDataCollector):
         history_df = self.get_job_history()
         active_df = self.get_active_jobs()
         
+        # Filter out header rows and convert values safely
+        valid_ncpus = history_df[history_df['ncpus'] != '----------']['ncpus'].astype(float)
+        valid_memory = history_df[history_df['max_rss'] != '----------']['max_rss'].str.replace('K', '').astype(float)
+        
         stats = {
             'total_jobs': len(history_df) + len(active_df),
             'active_jobs': len(active_df),
             'completed_jobs': len(history_df[history_df['state'] == 'COMPLETED']),
             'failed_jobs': len(history_df[history_df['state'] == 'FAILED']),
             'cancelled_jobs': len(history_df[history_df['state'] == 'CANCELLED']),
-            'avg_cpu_usage': history_df['ncpus'].astype(float).mean() if not history_df.empty else 0,
-            'avg_memory_usage': history_df['max_rss'].str.replace('K', '').astype(float).mean() if not history_df.empty else 0
+            'avg_cpu_usage': valid_ncpus.mean() if not valid_ncpus.empty else 0,
+            'avg_memory_usage': valid_memory.mean() if not valid_memory.empty else 0
         }
         
         return stats
