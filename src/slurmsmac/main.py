@@ -150,14 +150,24 @@ class Dashboard(App):
         """Set up the application when it starts."""
         # Set terminal encoding for the application
         if sys.platform != "win32":  # Only set for non-Windows platforms
-            os.environ["LANG"] = "en_US.UTF-8"
-            os.environ["LC_ALL"] = "en_US.UTF-8"
-            os.environ["TERM"] = "vt100"  # Use a simple terminal type that doesn't support mouse events
+            # Use dumb terminal type which has no special features
+            os.environ["TERM"] = "dumb"
             os.environ["TERMINFO"] = ""
+            # Disable all mouse tracking
+            os.environ["MOUSE_TRACKING"] = "0"
+            os.environ["TERM_PROGRAM"] = "dumb"
+            # Set encoding to latin-1 which is more permissive
+            os.environ["LANG"] = "C"
+            os.environ["LC_ALL"] = "C"
             os.environ["PYTHONIOENCODING"] = "latin-1"
+            # Disable any terminal features that might enable mouse
+            os.environ["TERM_PROGRAM_VERSION"] = "0"
+            os.environ["TERM_SESSION_ID"] = "0"
+            os.environ["TERM_SESSION_NAME"] = "dumb"
         
-        # Configure mouse mode for SSH
-        self.mouse_mode = "none"  # Completely disable mouse support
+        # Completely disable mouse support at the application level
+        self.mouse_mode = "none"
+        self.mouse_support = False
         
         self.set_interval(self.refresh_interval, self.refresh_data)
         self.refresh_data()
