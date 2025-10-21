@@ -9,6 +9,79 @@ import pandas as pd
 import os
 import sys
 
+# Patch Textual's Linux driver to handle decoding errors gracefully in HPC environments
+def _patch_textual_driver():
+    """Patch Textual's Linux driver to handle non-UTF-8 bytes gracefully."""
+    try:
+        from textual.drivers import linux_driver
+        import codecs
+
+        # Store the original decoder
+        original_run_input_thread = linux_driver.LinuxDriver.run_input_thread
+
+        def patched_run_input_thread(self):
+            """Patched version that uses error-tolerant decoder."""
+            import selectors
+            from os import read
+            from itertools import islice
+
+            selector = selectors.DefaultSelector()
+            fileno = self.fileno
+
+            # Create a UTF-8 decoder with 'replace' error handling
+            decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
+
+            def decode(data, final=False):
+                """Decode with error handling."""
+                try:
+                    return decoder.decode(data, final)
+                except Exception:
+                    # If decoding still fails, return empty string to avoid crash
+                    return ''
+
+            def loop_last(values):
+                """Yield pairs of (is_last, value)."""
+                iterator = iter(values)
+                try:
+                    previous = next(iterator)
+                except StopIteration:
+                    return
+                for value in iterator:
+                    yield False, previous
+                    previous = value
+                yield True, previous
+
+            def process_selector_events(selector_events, final=False):
+                """Process events from selector."""
+                EVENT_READ = selectors.EVENT_READ
+                for last, (_selector_key, mask) in loop_last(selector_events):
+                    if mask & EVENT_READ:
+                        unicode_data = decode(read(fileno, 1024 * 4), final=last and final)
+                        if not unicode_data:
+                            # This can occur if the stdin is piped
+                            break
+                        self.write(unicode_data)
+
+            selector.register(fileno, selectors.EVENT_READ)
+
+            try:
+                while not self.exit_event.is_set():
+                    process_selector_events(selector.select(0.1))
+                selector.unregister(self.fileno)
+                process_selector_events(selector.select(0.1), final=True)
+            finally:
+                selector.close()
+
+        # Apply the patch
+        linux_driver.LinuxDriver.run_input_thread = patched_run_input_thread
+
+    except Exception:
+        # If patching fails, continue without it
+        pass
+
+# Apply the patch before defining the Dashboard class
+_patch_textual_driver()
+
 class JobStats(Static):
     """Widget to display job statistics."""
     def __init__(self, title: str, value: str):
@@ -22,6 +95,10 @@ class JobStats(Static):
 
 class Dashboard(App):
     """Main dashboard application."""
+
+    # Disable mouse support completely - MUST be class attributes set before __init__
+    ENABLE_COMMAND_PALETTE = False
+
     CSS = """
     Screen {
         background: $surface;
@@ -86,7 +163,19 @@ class Dashboard(App):
     """
 
     def __init__(self):
+        # Disable mouse BEFORE calling super().__init__() to prevent driver from enabling it
+        # These must be set on the class before Textual initializes the driver
+        Dashboard.ENABLE_COMMAND_PALETTE = False
+
         super().__init__()
+
+        # Disable mouse support at multiple levels for HPC compatibility
+        self.mouse_over = None
+        try:
+            self._mouse_down_widget = None
+        except:
+            pass
+
         self.data_collector = get_slurm_collector()
         self.refresh_interval = 30  # seconds
         self.is_mock_mode = isinstance(self.data_collector, MockSlurmDataCollector)
