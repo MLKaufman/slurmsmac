@@ -19,9 +19,5 @@ slurmsmac = "slurmsmac:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.rye]
-managed = true
-dev-dependencies = []
-
 [tool.hatch.build.targets.wheel]
 packages = ["src/slurmsmac"]
