@@ -1,28 +1,12 @@
 # -*- coding: utf-8 -*-
 from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Header, Footer, Static, DataTable, Label, Tab, Tabs, TabPane
-from textual.reactive import reactive
-from datetime import datetime
+from textual.containers import Container, Vertical
+from textual.widgets import Header, Footer, Static, DataTable, Tab, Tabs, TabPane
 from .slurm_data import get_slurm_collector, MockSlurmDataCollector
-import pandas as pd
-import os
-import sys
 
 # Note: Mouse support is disabled in this application to ensure compatibility
 # with HPC environments. The previous driver patch for handling non-UTF-8 mouse
 # sequences has been removed as it was interfering with keyboard input.
-
-class JobStats(Static):
-    """Widget to display job statistics."""
-    def __init__(self, title: str, value: str):
-        super().__init__()
-        self.title = title
-        self.value = value
-
-    def compose(self) -> ComposeResult:
-        yield Label(self.title, classes="stats-title")
-        yield Label(self.value, classes="stats-value")
 
 class Dashboard(App):
     """Main dashboard application."""
@@ -60,14 +44,6 @@ class Dashboard(App):
         padding: 1;
     }
 
-    .stats-title {
-        color: $text-muted;
-    }
-
-    .stats-value {
-        color: $text;
-    }
-
     DataTable {
         height: 1fr;
         border: solid $primary;
@@ -75,12 +51,6 @@ class Dashboard(App):
 
     DataTable:focus {
         border: solid $success;
-    }
-
-    .plot-container {
-        height: 1fr;
-        width: 1fr;
-        padding: 1;
     }
 
     .mode-indicator {
@@ -96,11 +66,6 @@ class Dashboard(App):
 
     TabPane {
         height: 1fr;
-    }
-
-    .status-bar {
-        color: $text;
-        padding: 1;
     }
     """
 
@@ -121,11 +86,6 @@ class Dashboard(App):
         self.data_collector = get_slurm_collector()
         self.refresh_interval = 30  # seconds
         self.is_mock_mode = isinstance(self.data_collector, MockSlurmDataCollector)
-        # Store JobStats widgets for direct access
-        self.total_jobs_stat = JobStats("Total Jobs", "0")
-        self.active_jobs_stat = JobStats("Active Jobs", "0")
-        self.completed_jobs_stat = JobStats("Completed Jobs", "0")
-        self.failed_jobs_stat = JobStats("Failed Jobs", "0")
         # Track current tab
         self.current_tab_index = 0
         self.tab_ids = ["current-tab", "history-tab"]
@@ -140,20 +100,10 @@ class Dashboard(App):
         yield TabPane(
             "Current Jobs",
             Container(
-                Horizontal(
-                    Vertical(
-                        Static("Active Jobs", classes="section-title"),
-                        DataTable(id="active-jobs-table"),
-                        classes="stats-container"
-                    ),
-                    Vertical(
-                        Static("Job Statistics", classes="section-title"),
-                        self.total_jobs_stat,
-                        self.active_jobs_stat,
-                        self.completed_jobs_stat,
-                        self.failed_jobs_stat,
-                        classes="stats-container"
-                    ),
+                Vertical(
+                    Static("Active Jobs", classes="section-title"),
+                    DataTable(id="active-jobs-table"),
+                    classes="stats-container"
                 ),
             ),
             id="current-pane"
@@ -161,17 +111,10 @@ class Dashboard(App):
         yield TabPane(
             "Job History",
             Container(
-                Horizontal(
-                    Vertical(
-                        Static("Job History", classes="section-title"),
-                        DataTable(id="history-table"),
-                        classes="stats-container"
-                    ),
-                    Vertical(
-                        Static("Job Status Distribution", classes="section-title"),
-                        Static(id="status-plot", classes="status-bar"),
-                        classes="stats-container"
-                    ),
+                Vertical(
+                    Static("Job History", classes="section-title"),
+                    DataTable(id="history-table"),
+                    classes="stats-container"
                 ),
             ),
             id="history-pane"
@@ -249,9 +192,7 @@ class Dashboard(App):
     def refresh_data(self) -> None:
         """Refresh all data displays."""
         self.update_active_jobs()
-        self.update_job_stats()
         self.update_job_history()
-        self.update_status_plot()
 
     def update_active_jobs(self) -> None:
         """Update the active jobs table."""
@@ -271,14 +212,6 @@ class Dashboard(App):
                 job['cpus'],
                 job['memory']
             )
-
-    def update_job_stats(self) -> None:
-        """Update the job statistics display."""
-        stats = self.data_collector.get_job_stats()
-        self.total_jobs_stat.value = str(stats.get('total_jobs', 0))
-        self.active_jobs_stat.value = str(stats.get('active_jobs', 0))
-        self.completed_jobs_stat.value = str(stats.get('completed_jobs', 0))
-        self.failed_jobs_stat.value = str(stats.get('failed_jobs', 0))
 
     def update_job_history(self) -> None:
         """Update the job history table."""
@@ -300,34 +233,6 @@ class Dashboard(App):
                 job['ncpus'],
                 job['max_rss']
             )
-
-    def update_status_plot(self) -> None:
-        """Update the job status distribution display."""
-        try:
-            history = self.data_collector.get_job_history()
-            if history.empty:
-                self.query_one("#status-plot").update("No job history available")
-                return
-
-            status_counts = history['state'].value_counts()
-            total_jobs = len(history)
-            
-            # Create a text-based visualization using ASCII characters only
-            lines = ["Job Status Distribution:"]
-            for status, count in status_counts.items():
-                percentage = (count / total_jobs) * 100
-                bar_length = int(percentage / 2)  # Scale bar to fit in terminal
-                bar = "#" * bar_length  # Use ASCII # instead of Unicode block
-                lines.append(f"{status:12} {bar} {percentage:5.1f}% ({count})")
-            
-            # Add total jobs count
-            lines.append(f"\nTotal Jobs: {total_jobs}")
-            
-            # Update the display
-            self.query_one("#status-plot").update("\n".join(lines))
-        except Exception as e:
-            # If there's any error, show a simple text representation
-            self.query_one("#status-plot").update(f"Error generating status display: {str(e)}")
 
 if __name__ == "__main__":
     app = Dashboard()
