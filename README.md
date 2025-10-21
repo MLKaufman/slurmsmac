@@ -12,35 +12,51 @@ A Terminal User Interface (TUI) application for monitoring Slurm jobs, built wit
 
 ## Requirements
 
-- Python 3.8 or higher
+- Python 3.13 or higher
 - Slurm workload manager
 - Access to `squeue` and `sacct` commands
+- [uv](https://docs.astral.sh/uv/) - A fast Python package installer and resolver
 
 ## Installation
 
-1. Clone the repository:
+1. Install uv (if not already installed):
+```bash
+# On macOS and Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# On Windows
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Or with pip
+pip install uv
+```
+
+2. Clone the repository:
 ```bash
 git clone https://github.com/yourusername/slurmsmac.git
 cd slurmsmac
 ```
 
-2. Create and activate a virtual environment:
-```bash
-python -m venv .venv
-source .venv/bin/activate  # On Unix/macOS
-# or
-.venv\Scripts\activate  # On Windows
-```
-
 3. Install dependencies:
 ```bash
-pip install -e .
+uv sync
 ```
+
+This will automatically create a virtual environment and install all dependencies from the lockfile.
 
 ## Usage
 
 Run the application:
 ```bash
+uv run python main.py
+```
+
+Or activate the virtual environment and run directly:
+```bash
+source .venv/bin/activate  # On Unix/macOS
+# or
+.venv\Scripts\activate  # On Windows
+
 python main.py
 ```
 
