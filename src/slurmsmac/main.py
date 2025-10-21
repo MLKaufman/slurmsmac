@@ -99,6 +99,13 @@ class Dashboard(App):
     # Disable mouse support completely - MUST be class attributes set before __init__
     ENABLE_COMMAND_PALETTE = False
 
+    BINDINGS = [
+        ("q", "quit", "Quit"),
+        ("tab", "switch_tab", "Switch Tab"),
+        ("up", "cursor_up", "Up"),
+        ("down", "cursor_down", "Down"),
+    ]
+
     CSS = """
     Screen {
         background: $surface;
@@ -133,6 +140,10 @@ class Dashboard(App):
     DataTable {
         height: 1fr;
         border: solid $primary;
+    }
+
+    DataTable:focus {
+        border: solid $success;
     }
 
     .plot-container {
@@ -184,6 +195,9 @@ class Dashboard(App):
         self.active_jobs_stat = JobStats("Active Jobs", "0")
         self.completed_jobs_stat = JobStats("Completed Jobs", "0")
         self.failed_jobs_stat = JobStats("Failed Jobs", "0")
+        # Track current tab
+        self.current_tab_index = 0
+        self.tab_ids = ["current-tab", "history-tab"]
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -249,11 +263,56 @@ class Dashboard(App):
         self.set_interval(self.refresh_interval, self.refresh_data)
         self.refresh_data()
 
+        # Focus the active jobs table initially
+        try:
+            active_table = self.query_one("#active-jobs-table")
+            active_table.focus()
+        except:
+            pass
+
+    def action_quit(self) -> None:
+        """Quit the application."""
+        self.exit()
+
+    def action_switch_tab(self) -> None:
+        """Switch to the next tab."""
+        # Toggle between the two tabs
+        self.current_tab_index = (self.current_tab_index + 1) % len(self.tab_ids)
+
+        try:
+            tabs_widget = self.query_one(Tabs)
+            tabs_widget.active = self.tab_ids[self.current_tab_index]
+
+            # Focus the appropriate table based on the current tab
+            if self.current_tab_index == 0:
+                table = self.query_one("#active-jobs-table")
+            else:
+                table = self.query_one("#history-table")
+            table.focus()
+        except:
+            pass
+
+    def action_cursor_up(self) -> None:
+        """Move cursor up in the current table."""
+        try:
+            focused = self.focused
+            if isinstance(focused, DataTable):
+                focused.action_cursor_up()
+        except:
+            pass
+
+    def action_cursor_down(self) -> None:
+        """Move cursor down in the current table."""
+        try:
+            focused = self.focused
+            if isinstance(focused, DataTable):
+                focused.action_cursor_down()
+        except:
+            pass
+
     def on_key(self, event):
         """Handle keyboard events."""
-        if event.key == "q":
-            self.exit()
-        elif event.key == "ctrl+c":
+        if event.key == "ctrl+c":
             self.exit()
 
     def refresh_data(self) -> None:
@@ -266,9 +325,11 @@ class Dashboard(App):
     def update_active_jobs(self) -> None:
         """Update the active jobs table."""
         table = self.query_one("#active-jobs-table")
-        table.clear()
+        table.clear(columns=True)
         table.add_columns("Job ID", "Name", "State", "Time", "CPUs", "Memory")
-        
+        table.cursor_type = "row"
+        table.can_focus = True
+
         active_jobs = self.data_collector.get_active_jobs()
         for _, job in active_jobs.iterrows():
             table.add_row(
@@ -291,9 +352,11 @@ class Dashboard(App):
     def update_job_history(self) -> None:
         """Update the job history table."""
         table = self.query_one("#history-table")
-        table.clear()
+        table.clear(columns=True)
         table.add_columns("Job ID", "Name", "State", "Start", "End", "Elapsed", "CPUs", "Memory")
-        
+        table.cursor_type = "row"
+        table.can_focus = True
+
         history = self.data_collector.get_job_history()
         for _, job in history.iterrows():
             table.add_row(
