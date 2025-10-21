@@ -148,27 +148,15 @@ class Dashboard(App):
 
     def on_mount(self) -> None:
         """Set up the application when it starts."""
-        # Set terminal encoding for the application
-        if sys.platform != "win32":  # Only set for non-Windows platforms
-            # Use dumb terminal type which has no special features
-            os.environ["TERM"] = "dumb"
-            os.environ["TERMINFO"] = ""
-            # Disable all mouse tracking
-            os.environ["MOUSE_TRACKING"] = "0"
-            os.environ["TERM_PROGRAM"] = "dumb"
-            # Set encoding to latin-1 which is more permissive
-            os.environ["LANG"] = "C"
-            os.environ["LC_ALL"] = "C"
-            os.environ["PYTHONIOENCODING"] = "latin-1"
-            # Disable any terminal features that might enable mouse
-            os.environ["TERM_PROGRAM_VERSION"] = "0"
-            os.environ["TERM_SESSION_ID"] = "0"
-            os.environ["TERM_SESSION_NAME"] = "dumb"
-        
-        # Completely disable mouse support at the application level
-        self.mouse_mode = "none"
-        self.mouse_support = False
-        
+        # Disable mouse support at the application level
+        # This prevents issues with HPC terminals that may send mouse events
+        try:
+            self.mouse_mode = "none"
+            self.mouse_support = False
+        except (AttributeError, ValueError):
+            # If mouse configuration fails, continue anyway
+            pass
+
         self.set_interval(self.refresh_interval, self.refresh_data)
         self.refresh_data()
 
