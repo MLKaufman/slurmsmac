@@ -27,8 +27,12 @@ def main():
         # Tell Python to use UTF-8 with replacement for invalid bytes
         os.environ["PYTHONIOENCODING"] = "utf-8:replace"
 
+        # Explicitly disable mouse tracking to prevent terminal from sending mouse events
+        # This prevents crashes from non-UTF-8 bytes in mouse escape sequences
+        os.environ["TEXTUAL_MOUSE"] = "0"
+
     app = Dashboard()
-    app.run()
+    app.run(mouse=False)  # Explicitly disable mouse support
 
 if __name__ == "__main__":
     main() 
