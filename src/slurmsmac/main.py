@@ -23,7 +23,7 @@ class Dashboard(App):
 
     CSS = """
     Screen {
-        background: $surface;
+        background: red;
     }
 
     #header {
