@@ -30,16 +30,39 @@ class MockSlurmDataCollector(BaseSlurmDataCollector):
     def _generate_mock_job(self, job_id: int, is_active: bool = True) -> Dict:
         """Generate a mock job entry."""
         state = random.choice(self.job_states) if is_active else random.choice(['COMPLETED', 'FAILED', 'CANCELLED'])
-        return {
+        
+        # Generate realistic times
+        now = datetime.now()
+        duration_mins = random.randint(1, 120)
+        start_time = now - pd.Timedelta(minutes=random.randint(0, 1000))
+        end_time = start_time + pd.Timedelta(minutes=duration_mins)
+        
+        job = {
             'job_id': f'{job_id}',
             'name': random.choice(self.job_names),
             'state': state,
-            'time': f'{random.randint(1, 24)}:00:00',
+            'ncpus': str(random.randint(1, 32)),
             'nodes': random.choice(self.nodes),
-            'cpus': str(random.randint(1, 32)),
-            'memory': f'{random.randint(1, 64)}G',
-            'reason': 'None' if state == 'RUNNING' else 'Resources' if state == 'PENDING' else 'Completed'
         }
+
+        if is_active:
+            # Active job fields
+            job.update({
+                'time': f'{random.randint(0, 24):02d}:{random.randint(0, 59):02d}:{random.randint(0, 59):02d}',
+                'cpus': job['ncpus'], # Active jobs use 'cpus' in squeue
+                'memory': f'{random.randint(1, 64)}G',
+                'reason': 'None' if state == 'RUNNING' else 'Resources'
+            })
+        else:
+            # History job fields
+            job.update({
+                'start': start_time.strftime('%Y-%m-%dT%H:%M:%S'),
+                'end': end_time.strftime('%Y-%m-%dT%H:%M:%S'),
+                'elapsed': f'{duration_mins // 60:02d}:{duration_mins % 60:02d}:00',
+                'max_rss': f'{random.randint(1024, 65536)}K',
+            })
+            
+        return job
 
     def get_active_jobs(self) -> pd.DataFrame:
         """Get mock active jobs."""

@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 from textual.app import App, ComposeResult
-from textual.containers import Container, Vertical
+from textual.containers import Container, Vertical, Horizontal
 from textual.widgets import Header, Footer, Static, DataTable, Tab, Tabs, TabPane
+from rich.table import Table
+from rich.text import Text
 from .slurm_data import get_slurm_collector, MockSlurmDataCollector
 
 # Note: Mouse support is disabled in this application to ensure compatibility
@@ -23,7 +25,7 @@ class Dashboard(App):
 
     CSS = """
     Screen {
-        background: red;
+        background: $surface;
     }
 
     #header {
@@ -66,6 +68,12 @@ class Dashboard(App):
 
     TabPane {
         height: 1fr;
+    }
+    
+    #status-plot {
+        height: 1fr;
+        border: solid $secondary;
+        padding: 1;
     }
     """
 
@@ -111,10 +119,17 @@ class Dashboard(App):
         yield TabPane(
             "Job History",
             Container(
-                Vertical(
-                    Static("Job History", classes="section-title"),
-                    DataTable(id="history-table"),
-                    classes="stats-container"
+                Horizontal(
+                    Vertical(
+                        Static("Job History", classes="section-title"),
+                        DataTable(id="history-table"),
+                        classes="stats-container"
+                    ),
+                    Vertical(
+                        Static("Job Status Distribution", classes="section-title"),
+                        Static(id="status-plot"),
+                        classes="stats-container"
+                    ),
                 ),
             ),
             id="history-pane"
@@ -193,6 +208,7 @@ class Dashboard(App):
         """Refresh all data displays."""
         self.update_active_jobs()
         self.update_job_history()
+        self.update_status_plot()
 
     def update_active_jobs(self) -> None:
         """Update the active jobs table."""
@@ -234,6 +250,45 @@ class Dashboard(App):
                 job['max_rss']
             )
 
-if __name__ == "__main__":
-    app = Dashboard()
-    app.run()
+    def update_status_plot(self) -> None:
+        """Update the job status distribution plot."""
+        history = self.data_collector.get_job_history()
+        if history.empty:
+            return
+            
+        status_counts = history['state'].value_counts()
+        total = status_counts.sum()
+        
+        # Create a table for the chart
+        table = Table(show_header=False, box=None, padding=(0, 1))
+        table.add_column("State", style="bold cyan")
+        table.add_column("Bar")
+        table.add_column("Count", justify="right")
+        table.add_column("Percent", justify="right")
+        
+        # Colors for different states
+        colors = {
+            'COMPLETED': 'green',
+            'FAILED': 'red',
+            'CANCELLED': 'yellow',
+            'RUNNING': 'blue',
+            'PENDING': 'magenta'
+        }
+        
+        max_width = 30
+        
+        for state, count in status_counts.items():
+            percent = count / total
+            width = int(percent * max_width)
+            bar = "█" * width
+            color = colors.get(state, 'white')
+            
+            table.add_row(
+                state,
+                Text(bar, style=color),
+                str(count),
+                f"{percent:.1%}"
+            )
+            
+        # Update the static widget with the chart
+        self.query_one("#status-plot").update(table)
