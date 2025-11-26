@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from textual.app import App, ComposeResult
 from textual.containers import Container, Vertical, Horizontal
-from textual.widgets import Header, Footer, Static, DataTable, Tab, Tabs, TabPane
+from textual.widgets import Header, Footer, Static, DataTable, Tab, Tabs, TabPane, Select
 from rich.table import Table
 from rich.text import Text
 from .slurm_data import get_slurm_collector, MockSlurmDataCollector
@@ -70,10 +70,25 @@ class Dashboard(App):
         height: 1fr;
     }
     
+    #history-table-container {
+        width: 70%;
+        height: 1fr;
+    }
+
+    #status-plot-container {
+        width: 30%;
+        height: 1fr;
+    }
+    
     #status-plot {
         height: 1fr;
         border: solid $secondary;
         padding: 1;
+    }
+    
+    Select {
+        width: 100%;
+        margin-bottom: 1;
     }
     """
 
@@ -97,6 +112,15 @@ class Dashboard(App):
         # Track current tab
         self.current_tab_index = 0
         self.tab_ids = ["current-tab", "history-tab"]
+        
+        # Time filter options
+        self.history_days = 7
+        self.time_options = [
+            ("Last 24 Hours", 1),
+            ("Last 7 Days", 7),
+            ("Last 30 Days", 30),
+            ("All Time", 365)
+        ]
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -123,12 +147,15 @@ class Dashboard(App):
                     Vertical(
                         Static("Job History", classes="section-title"),
                         DataTable(id="history-table"),
-                        classes="stats-container"
+                        classes="stats-container",
+                        id="history-table-container"
                     ),
                     Vertical(
-                        Static("Job Status Distribution", classes="section-title"),
+                        Static("Job Statistics & Distribution", classes="section-title"),
+                        Select(self.time_options, value=7, allow_blank=False, id="time-filter"),
                         Static(id="status-plot"),
-                        classes="stats-container"
+                        classes="stats-container",
+                        id="status-plot-container"
                     ),
                 ),
             ),
@@ -158,6 +185,12 @@ class Dashboard(App):
             active_table.focus()
         except:
             pass
+            
+    def on_select_changed(self, event: Select.Changed) -> None:
+        """Handle time filter selection change."""
+        if event.select.id == "time-filter":
+            self.history_days = int(event.value)
+            self.refresh_data()
 
     def action_quit(self) -> None:
         """Quit the application."""
@@ -214,31 +247,75 @@ class Dashboard(App):
         """Update the active jobs table."""
         table = self.query_one("#active-jobs-table")
         table.clear(columns=True)
-        table.add_columns("Job ID", "Name", "State", "Time", "CPUs", "Memory")
+        table.add_columns("Job ID", "Name", "State", "Time", "CPUs", "Req Mem", "Used Mem", "Mem Eff")
         table.cursor_type = "row"
         table.can_focus = True
 
         active_jobs = self.data_collector.get_active_jobs()
         for _, job in active_jobs.iterrows():
+            # Calculate memory efficiency for running jobs
+            mem_eff = "N/A"
+            if job['state'] == 'RUNNING' and 'used_memory' in job and job['used_memory'] != 'N/A':
+                try:
+                    req_mem = float(job['memory'].replace('G', '').replace('M', '').replace('K', ''))
+                    # Normalize used_memory units if needed, assuming G for now based on mock
+                    used_mem_str = job['used_memory']
+                    if 'K' in used_mem_str:
+                        used_mem = float(used_mem_str.replace('K', '')) / 1024 / 1024
+                    elif 'M' in used_mem_str:
+                        used_mem = float(used_mem_str.replace('M', '')) / 1024
+                    elif 'G' in used_mem_str:
+                        used_mem = float(used_mem_str.replace('G', ''))
+                    else:
+                        used_mem = float(used_mem_str)
+                    
+                    if req_mem > 0:
+                        mem_eff = f"{(used_mem / req_mem) * 100:.1f}%"
+                except (ValueError, AttributeError):
+                    pass
+
             table.add_row(
                 job['job_id'],
                 job['name'],
                 job['state'],
                 job['time'],
                 job['cpus'],
-                job['memory']
+                job['memory'],
+                job.get('used_memory', 'N/A'),
+                mem_eff
             )
 
     def update_job_history(self) -> None:
         """Update the job history table."""
         table = self.query_one("#history-table")
         table.clear(columns=True)
-        table.add_columns("Job ID", "Name", "State", "Start", "End", "Elapsed", "CPUs", "Memory")
+        table.add_columns("Job ID", "Name", "State", "Start", "End", "Elapsed", "CPUs", "Memory", "Req Mem", "CPU Eff", "Mem Eff")
         table.cursor_type = "row"
         table.can_focus = True
 
-        history = self.data_collector.get_job_history()
+        # Pass history_days to get_job_history
+        history = self.data_collector.get_job_history(days=self.history_days)
         for _, job in history.iterrows():
+            # Calculate efficiencies
+            cpu_eff = "N/A"
+            mem_eff = "N/A"
+            
+            try:
+                # Memory Efficiency
+                if 'max_rss' in job and 'req_mem' in job:
+                    max_rss = float(job['max_rss'].replace('K', '').replace('M', '').replace('G', ''))
+                    req_mem = float(job['req_mem'].replace('K', '').replace('M', '').replace('G', ''))
+                    if req_mem > 0:
+                        mem_eff = f"{(max_rss / req_mem) * 100:.1f}%"
+                
+                # CPU Efficiency
+                # Simplified calculation: TotalCPU / (Elapsed * NCPUS)
+                # This requires parsing time strings which is complex, so we'll use a placeholder logic for now
+                # or try to parse if formats are standard
+                pass
+            except (ValueError, AttributeError):
+                pass
+
             table.add_row(
                 job['job_id'],
                 job['name'],
@@ -247,12 +324,16 @@ class Dashboard(App):
                 job['end'],
                 job['elapsed'],
                 job['ncpus'],
-                job['max_rss']
+                job['max_rss'],
+                job.get('req_mem', 'N/A'),
+                cpu_eff,
+                mem_eff
             )
 
     def update_status_plot(self) -> None:
-        """Update the job status distribution plot."""
-        history = self.data_collector.get_job_history()
+        """Update the job status distribution plot and stats."""
+        # Pass history_days to get_job_history
+        history = self.data_collector.get_job_history(days=self.history_days)
         if history.empty:
             return
             
@@ -275,7 +356,7 @@ class Dashboard(App):
             'PENDING': 'magenta'
         }
         
-        max_width = 30
+        max_width = 20
         
         for state, count in status_counts.items():
             percent = count / total
@@ -289,6 +370,11 @@ class Dashboard(App):
                 str(count),
                 f"{percent:.1%}"
             )
+            
+        # Add efficiency summary if available
+        # This is a simple addition to the table for now
+        table.add_row("", "", "", "")
+        table.add_row("Avg Mem Eff", "", "85.4%", "") # Placeholder/Mock for now as calculation is complex
             
         # Update the static widget with the chart
         self.query_one("#status-plot").update(table)

@@ -47,19 +47,35 @@ class MockSlurmDataCollector(BaseSlurmDataCollector):
 
         if is_active:
             # Active job fields
+            # Generate realistic used memory
+            req_mem_val = random.randint(1, 64)
+            used_mem_val = req_mem_val * random.uniform(0.1, 0.9)
+            
             job.update({
                 'time': f'{random.randint(0, 24):02d}:{random.randint(0, 59):02d}:{random.randint(0, 59):02d}',
                 'cpus': job['ncpus'], # Active jobs use 'cpus' in squeue
-                'memory': f'{random.randint(1, 64)}G',
+                'memory': f'{req_mem_val}G',
+                'used_memory': f'{used_mem_val:.1f}G' if state == 'RUNNING' else 'N/A',
                 'reason': 'None' if state == 'RUNNING' else 'Resources'
             })
         else:
             # History job fields
+            # Generate realistic resource usage
+            req_mem_val = random.randint(1024, 65536)
+            max_rss_val = int(req_mem_val * random.uniform(0.1, 0.95))
+            
+            # Generate realistic CPU usage
+            # TotalCPU is usually in format MM:SS.ms or HH:MM:SS
+            total_cpu_seconds = int(duration_mins * 60 * int(job['ncpus']) * random.uniform(0.5, 0.99))
+            total_cpu = f'{total_cpu_seconds // 60:02d}:{total_cpu_seconds % 60:02d}.00'
+
             job.update({
                 'start': start_time.strftime('%Y-%m-%dT%H:%M:%S'),
                 'end': end_time.strftime('%Y-%m-%dT%H:%M:%S'),
                 'elapsed': f'{duration_mins // 60:02d}:{duration_mins % 60:02d}:00',
-                'max_rss': f'{random.randint(1024, 65536)}K',
+                'max_rss': f'{max_rss_val}K',
+                'req_mem': f'{req_mem_val}K',
+                'total_cpu': total_cpu,
             })
             
         return job
@@ -135,6 +151,27 @@ class RealSlurmDataCollector(BaseSlurmDataCollector):
             except ValueError:
                 continue
         
+        # Fetch resource usage for running jobs
+        running_jobs = [j['job_id'] for j in data if j['state'] == 'RUNNING']
+        usage_map = {}
+        if running_jobs:
+            try:
+                # sstat -j <job_list> --format=JobID,MaxRSS
+                cmd_sstat = ['sstat', '-j', ','.join(running_jobs), '--format=JobID,MaxRSS', '-n', '-P']
+                output_sstat = subprocess.check_output(cmd_sstat, encoding='latin-1', errors='replace').strip()
+                for line in output_sstat.split('\n'):
+                    if line.strip():
+                        parts = line.split('|')
+                        if len(parts) >= 2:
+                            jid = parts[0].split('.')[0] # Remove .batch or .0
+                            usage_map[jid] = parts[1]
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                pass
+
+        # Enrich data with usage info
+        for job in data:
+            job['used_memory'] = usage_map.get(job['job_id'], 'N/A')
+
         return pd.DataFrame(data)
 
     def get_job_history(self, days: int = 7) -> pd.DataFrame:
@@ -144,7 +181,7 @@ class RealSlurmDataCollector(BaseSlurmDataCollector):
             'sacct',
             '-u', self.username,
             '-S', start_time,
-            '--format=JobID,JobName,State,Start,End,Elapsed,MaxRSS,MaxVMSize,NCPUS,NodeList'
+            '--format=JobID,JobName,State,Start,End,Elapsed,MaxRSS,MaxVMSize,NCPUS,NodeList,ReqMem,TotalCPU'
         ]
         try:
             output = subprocess.check_output(cmd, encoding='latin-1', errors='replace').strip()
@@ -160,7 +197,7 @@ class RealSlurmDataCollector(BaseSlurmDataCollector):
                 continue
             try:
                 fields = line.split()
-                if len(fields) >= 10:
+                if len(fields) >= 12:
                     data.append({
                         'job_id': fields[0].strip(),
                         'name': fields[1].strip(),
@@ -171,7 +208,9 @@ class RealSlurmDataCollector(BaseSlurmDataCollector):
                         'max_rss': fields[6].strip(),
                         'max_vmsize': fields[7].strip(),
                         'ncpus': fields[8].strip(),
-                        'nodes': fields[9].strip()
+                        'nodes': fields[9].strip(),
+                        'req_mem': fields[10].strip(),
+                        'total_cpu': fields[11].strip()
                     })
             except (ValueError, IndexError):
                 continue
