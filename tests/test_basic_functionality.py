@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Basic functionality test for SlurmSMAc"""
 
-from src.slurmsmac.slurm_data import get_slurm_collector, MockSlurmDataCollector
+from slurmsmac.slurm_data import get_slurm_collector, MockSlurmDataCollector
 import pandas as pd
 
 def test_data_collector():

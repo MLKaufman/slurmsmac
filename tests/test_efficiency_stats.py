@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Test efficiency stats data fields"""
 
-from src.slurmsmac.slurm_data import MockSlurmDataCollector
+from slurmsmac.slurm_data import MockSlurmDataCollector
 
 def test_efficiency_fields():
     """Test that mock data has efficiency-related fields."""

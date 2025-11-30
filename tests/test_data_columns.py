@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Test data column compatibility"""
 
-from src.slurmsmac.slurm_data import MockSlurmDataCollector
+from slurmsmac.slurm_data import MockSlurmDataCollector
 
 def test_column_compatibility():
     """Test that mock data has all required columns."""

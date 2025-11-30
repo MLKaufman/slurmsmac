@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Test active job stats"""
 
-from src.slurmsmac.slurm_data import MockSlurmDataCollector
+from slurmsmac.slurm_data import MockSlurmDataCollector
 
 def test_active_stats():
     """Test that active jobs have used_memory field."""
